@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	_ "embed"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"text/template"
 	"time"
 )
+
+const horizont = 90 * 24 * time.Hour
 
 //go:embed index.html.tmpl
 var itmpl string
@@ -72,18 +75,29 @@ func parseMbox(r io.Reader, data map[string][]time.Time) error {
 	var from string
 	var date time.Time
 	s := bufio.NewScanner(r)
+	buf := make([]byte, 0, 64*1024)
+	s.Buffer(buf, 1024*1024)
 	for s.Scan() {
 		l := s.Text()
 		switch {
 		case strings.HasPrefix(l, "From:"):
 			from = strings.Replace(l, "From: ", "", 1)
+			if !strings.Contains(from, "@") {
+				for s.Scan() {
+					l := s.Text()
+					if strings.Contains(l, "@") {
+						from = l
+						break
+					}
+				}
+			}
 		case strings.HasPrefix(l, "Date:"):
 			t := parseDate(strings.Replace(l, "Date: ", "", 1))
 			if t == nil {
 				log.Println("unrecognized format", l)
 				continue
 			}
-			date = t.Round(24 * time.Hour)
+			date = t.Truncate(horizont)
 		case strings.HasPrefix(l, "From"):
 			if from != "" && !date.IsZero() {
 				data[from] = append(data[from], date)
@@ -120,13 +134,13 @@ func renderGraph(data map[string][]time.Time, min, max time.Time) error {
 		return err
 	}
 	var labels []string
-	for t := min; t.Before(max); t = t.Add(24 * time.Hour) {
+	for t := min; t.Before(max); t = t.Add(horizont) {
 		labels = append(labels, t.Format(time.DateOnly))
 	}
 	var datasets []Dataset
 	for k := range data {
 		d := data[k]
-		ds := Dataset{Label: strings.ReplaceAll(k, `"`, `\"`)}
+		ds := Dataset{Label: fmt.Sprintf("%s (%d)", strings.ReplaceAll(k, `"`, `\"`), len(d))}
 		var ptr int
 		for i := 0; i < len(labels); i++ {
 			l := labels[i]
