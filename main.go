@@ -2,14 +2,18 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
-	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
-	"github.com/influxdata/influxdb-client-go/v2/api"
+	"github.com/go-echarts/go-echarts/v2/charts"
+	"github.com/go-echarts/go-echarts/v2/opts"
+	"github.com/go-echarts/go-echarts/v2/types"
 )
 
 func main() {
@@ -21,21 +25,26 @@ func main() {
 		log.Fatal(err)
 	}
 	defer f.Close()
-	cli := influxdb2.NewClient("http://localhost:8086", "QhpqpU8s8WPf9pCwcJMR_YeR51arG8e7QufRaF-rGFlO5BJr_vagES2uX1FrNswx7n12mQ6Gv8UBYMeL6HFTXw==")
-	w := cli.WriteAPI("local", "mbox")
-	if err := parseMbox(f, w); err != nil {
+	data := make(map[string][]time.Time)
+	if err := parseMbox(f, data); err != nil {
 		log.Fatal(err)
 	}
-	w.Flush()
-	select {
-	case err := <-w.Errors():
-		log.Fatal(err)
-	default:
-		log.Print("all done")
+	if len(data) == 0 {
+		log.Fatal("no data in mbox")
 	}
+	for k := range data {
+		sort.Slice(data[k], func(i, j int) bool {
+			return data[k][i].Before(data[k][j])
+		})
+	}
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		line := renderGraph(data)
+		line.Render(w)
+	})
+	http.ListenAndServe(":8081", nil)
 }
 
-func parseMbox(r io.Reader, w api.WriteAPI) error {
+func parseMbox(r io.Reader, data map[string][]time.Time) error {
 	var from string
 	var date time.Time
 	s := bufio.NewScanner(r)
@@ -60,16 +69,10 @@ func parseMbox(r io.Reader, w api.WriteAPI) error {
 				log.Println("unrecognized format", l)
 				continue
 			}
-			date = t.Truncate(time.Hour)
+			date = *t
 		case strings.HasPrefix(l, "From"):
 			if from != "" && !date.IsZero() {
-				p := influxdb2.NewPoint(
-					"mbox",
-					map[string]string{"from": from},
-					map[string]interface{}{"avg": 1},
-					date,
-				)
-				w.WritePoint(p)
+				data[from] = append(data[from], date)
 			}
 			from, date = "", time.Time{}
 		}
@@ -91,4 +94,48 @@ func parseDate(date string) *time.Time {
 		}
 	}
 	return nil
+}
+
+type dataset struct {
+	year   string
+	values []opts.BarData
+}
+
+func renderGraph(data map[string][]time.Time) *charts.Bar {
+	bar := charts.NewBar()
+	bar.SetGlobalOptions(
+		charts.WithInitializationOpts(opts.Initialization{Theme: types.ThemeWesteros}),
+		charts.WithDataZoomOpts(opts.DataZoom{}),
+		charts.WithLegendOpts(opts.Legend{Show: true, Type: "scroll", Orient: "horizontal"}),
+	)
+	var labels []string
+	for k := range data {
+		label := strings.ReplaceAll(k, `"`, `\"`)
+		labels = append(labels, label)
+	}
+	var datasets []dataset
+	for i := 2016; i < 2024; i++ {
+		ds := dataset{year: fmt.Sprint(i)}
+		for _, times := range data {
+			if len(times) == 0 {
+				continue
+			}
+			var total int
+			for _, t := range times {
+				if t.Year() == i {
+					total++
+				}
+			}
+			ds.values = append(ds.values, opts.BarData{Value: total})
+		}
+		datasets = append(datasets, ds)
+	}
+	bar.SetXAxis(labels)
+	for _, ds := range datasets {
+		bar.AddSeries(ds.year, ds.values).
+			SetSeriesOptions(charts.WithBarChartOpts(opts.BarChart{
+				Stack: "stack",
+			}))
+	}
+	return bar
 }
