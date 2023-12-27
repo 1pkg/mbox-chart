@@ -1,41 +1,64 @@
-<html lang="en">
+<html>
   <head>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" integrity="sha512-CQBWl4fJHWbryGE+Pc7UAxWMUMNMWzWxF4SQo9CgkJIN1kx6djDQZjh3Y8SZ1d+6I+1zze6Z7kHXO7q3UyZAWw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js" integrity="sha512-UXumZrZNiOwnTcZSHLOfcTs0aos2MzBWHXOHOuB0J/R44QB0dwY5JgfbvljXcklVf65Gc4El6RjZ+lnwd2az2g==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js" integrity="sha512-wUYbRPLV5zs6IqvWd88HIqZU/b8TBx+I8LEioQ/UC0t5EMCLApqhIAnUg7EsAzdbhhdgW07TqYDdH3QEXRcPOQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
   </head>
-  <body>
-    <canvas id="chart" width="100%" height="100%"></canvas>
+  <body height="100vh" width="100vw" style="overflow:hidden;">
+    <div style="user-select:none;">
+      <span id="zoom-in" class="fa-solid fa-plus"></span>
+      |
+      <span id="zoom-out" class="fa-solid fa-minus"></span>
+      |
+      <span id="zoom-reset" class="fa-solid fa-arrows-rotate"></span>
+    </div>
+    <div style="position:relative; height:80vh; width:80vw;">
+      <canvas id="chart"></canvas>
+    </div>
     <script>
-      new Chart(document.getElementById('chart').getContext('2d'), {
+      let chart = new Chart(document.getElementById('chart').getContext('2d'), {
           type: 'line',
           data: {
             labels: ["January", "February", "March", "April", "May", "June", "July"],
             datasets: [
                 {
-                    label: "My First dataset",
+                    label: 'Dataset',
                     fill: false,
-                    lineTension: 0.1,
-                    backgroundColor: "rgba(75,192,192,0.4)",
-                    borderColor: "rgba(75,192,192,1)",
-                    borderCapStyle: 'butt',
-                    borderDash: [],
-                    borderDashOffset: 0.0,
-                    borderJoinStyle: 'miter',
-                    pointBorderColor: "rgba(75,192,192,1)",
-                    pointBackgroundColor: "#fff",
-                    pointBorderWidth: 1,
-                    pointHoverRadius: 5,
-                    pointHoverBackgroundColor: "rgba(75,192,192,1)",
-                    pointHoverBorderColor: "rgba(220,220,220,1)",
-                    pointHoverBorderWidth: 2,
-                    pointRadius: 1,
-                    pointHitRadius: 10,
                     data: [65, 59, 80, 81, 56, 55, 40],
-                    spanGaps: false,
-                }
-            ]
+                },
+            ],
         },
-        options: {}
+        options: {
+          plugins: {
+            zoom: {
+              pan: {
+                enabled: true,
+                mode: 'x',
+                scaleMode: 'x',
+                modifierKey: 'alt',
+                threshold: 1,
+              },
+              zoom: {
+                drag: {
+                  enabled: true
+                },
+                mode: 'x',
+                scaleMode: 'x',
+              },
+            },
+          },
+        },
       })
+      document.getElementById('zoom-in').onclick = () => {
+        chart.zoom({x: 1.5})
+      }
+      document.getElementById('zoom-out').onclick = () => {
+        chart.zoom({x: 0.5})
+      }
+      document.getElementById('zoom-reset').onclick = () => {
+        chart.resetZoom()
+      }
     </script>
   </body>
 </html>
