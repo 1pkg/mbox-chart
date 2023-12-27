@@ -2,81 +2,44 @@ package main
 
 import (
 	"bufio"
-	_ "embed"
-	"fmt"
 	"io"
 	"log"
 	"os"
-	"sort"
 	"strings"
-	"text/template"
 	"time"
+
+	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
+	"github.com/influxdata/influxdb-client-go/v2/api"
 )
 
-const horizont = 90 * 24 * time.Hour
-
-//go:embed index.html.tmpl
-var itmpl string
-
-type Dataset struct {
-	Label  string
-	Values []int
-}
-
 func main() {
-	f, err := readFile()
-	if err != nil {
-		log.Fatal(err)
-	}
-	if f == nil {
-		log.Fatal("mbox is required")
-	}
-	defer f.Close()
-	data := make(map[string][]time.Time)
-	if err := parseMbox(f, data); err != nil {
-		log.Fatal(err)
-	}
-	if len(data) == 0 {
-		log.Fatal("no data in mbox")
-	}
-	var key string
-	for k := range data {
-		sort.Slice(data[k], func(i, j int) bool {
-			return data[k][i].Before(data[k][j])
-		})
-		key = k
-	}
-	min, max := data[key][0], data[key][len(data[key])-1]
-	for k := range data {
-		if m := data[k][0]; m.Before(min) {
-			min = m
-		}
-		if m := data[key][0]; m.After(max) {
-			max = m
-		}
-	}
-	if err := renderGraph(data, min, max); err != nil {
-		log.Fatal(err)
-	}
-}
-
-func readFile() (io.ReadCloser, error) {
 	if len(os.Args) != 2 {
-		return nil, nil
+		log.Fatal("mbox filepath is required")
 	}
 	f, err := os.Open(os.Args[1])
 	if err != nil {
-		return nil, err
+		log.Fatal(err)
 	}
-	return f, nil
+	defer f.Close()
+	cli := influxdb2.NewClient("http://localhost:8086", "QhpqpU8s8WPf9pCwcJMR_YeR51arG8e7QufRaF-rGFlO5BJr_vagES2uX1FrNswx7n12mQ6Gv8UBYMeL6HFTXw==")
+	w := cli.WriteAPI("local", "mbox")
+	if err := parseMbox(f, w); err != nil {
+		log.Fatal(err)
+	}
+	w.Flush()
+	select {
+	case err := <-w.Errors():
+		log.Fatal(err)
+	default:
+		log.Print("all done")
+	}
 }
 
-func parseMbox(r io.Reader, data map[string][]time.Time) error {
+func parseMbox(r io.Reader, w api.WriteAPI) error {
 	var from string
 	var date time.Time
 	s := bufio.NewScanner(r)
-	buf := make([]byte, 0, 64*1024)
-	s.Buffer(buf, 1024*1024)
+	s.Buffer(make([]byte, 0, 4096), 1024*1024)
 	for s.Scan() {
 		l := s.Text()
 		switch {
@@ -97,10 +60,16 @@ func parseMbox(r io.Reader, data map[string][]time.Time) error {
 				log.Println("unrecognized format", l)
 				continue
 			}
-			date = t.Truncate(horizont)
+			date = t.Truncate(time.Hour)
 		case strings.HasPrefix(l, "From"):
 			if from != "" && !date.IsZero() {
-				data[from] = append(data[from], date)
+				p := influxdb2.NewPoint(
+					"mbox",
+					map[string]string{"from": from},
+					map[string]interface{}{"avg": 1},
+					date,
+				)
+				w.WritePoint(p)
 			}
 			from, date = "", time.Time{}
 		}
@@ -122,40 +91,4 @@ func parseDate(date string) *time.Time {
 		}
 	}
 	return nil
-}
-
-func renderGraph(data map[string][]time.Time, min, max time.Time) error {
-	f, err := os.Create("index.html")
-	if err != nil {
-		return err
-	}
-	tmpl, err := template.New("index").Parse(itmpl)
-	if err != nil {
-		return err
-	}
-	var labels []string
-	for t := min; t.Before(max); t = t.Add(horizont) {
-		labels = append(labels, t.Format(time.DateOnly))
-	}
-	var datasets []Dataset
-	for k := range data {
-		d := data[k]
-		ds := Dataset{Label: fmt.Sprintf("%s (%d)", strings.ReplaceAll(k, `"`, `\"`), len(d))}
-		var ptr int
-		for i := 0; i < len(labels); i++ {
-			l := labels[i]
-			var j int = ptr
-			for ; ptr < len(d); ptr++ {
-				if l != d[ptr].Format(time.DateOnly) {
-					break
-				}
-			}
-			ds.Values = append(ds.Values, ptr-j)
-		}
-		datasets = append(datasets, ds)
-	}
-	return tmpl.Execute(f, struct {
-		Labels   []string
-		Datasets []Dataset
-	}{Labels: labels, Datasets: datasets})
 }
