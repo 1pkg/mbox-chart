@@ -2,14 +2,23 @@ package main
 
 import (
 	"bufio"
-	"fmt"
+	_ "embed"
 	"io"
 	"log"
 	"os"
 	"sort"
 	"strings"
+	"text/template"
 	"time"
 )
+
+//go:embed index.html.tmpl
+var itmpl string
+
+type Dataset struct {
+	Label  string
+	Values []int
+}
 
 func main() {
 	f, err := readFile()
@@ -24,12 +33,28 @@ func main() {
 	if err := parseMbox(f, data); err != nil {
 		log.Fatal(err)
 	}
+	if len(data) == 0 {
+		log.Fatal("no data in mbox")
+	}
+	var key string
 	for k := range data {
 		sort.Slice(data[k], func(i, j int) bool {
 			return data[k][i].Before(data[k][j])
 		})
+		key = k
 	}
-	fmt.Println(data)
+	min, max := data[key][0], data[key][len(data[key])-1]
+	for k := range data {
+		if m := data[k][0]; m.Before(min) {
+			min = m
+		}
+		if m := data[key][0]; m.After(max) {
+			max = m
+		}
+	}
+	if err := renderGraph(data, min, max); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func readFile() (io.ReadCloser, error) {
@@ -58,7 +83,7 @@ func parseMbox(r io.Reader, data map[string][]time.Time) error {
 				log.Println("unrecognized format", l)
 				continue
 			}
-			date = t.Round(time.Hour)
+			date = t.Round(24 * time.Hour)
 		case strings.HasPrefix(l, "From"):
 			if from != "" && !date.IsZero() {
 				data[from] = append(data[from], date)
@@ -83,4 +108,40 @@ func parseDate(date string) *time.Time {
 		}
 	}
 	return nil
+}
+
+func renderGraph(data map[string][]time.Time, min, max time.Time) error {
+	f, err := os.Create("index.html")
+	if err != nil {
+		return err
+	}
+	tmpl, err := template.New("index").Parse(itmpl)
+	if err != nil {
+		return err
+	}
+	var labels []string
+	for t := min; t.Before(max); t = t.Add(24 * time.Hour) {
+		labels = append(labels, t.Format(time.DateOnly))
+	}
+	var datasets []Dataset
+	for k := range data {
+		d := data[k]
+		ds := Dataset{Label: strings.ReplaceAll(k, `"`, `\"`)}
+		var ptr int
+		for i := 0; i < len(labels); i++ {
+			l := labels[i]
+			var j int = ptr
+			for ; ptr < len(d); ptr++ {
+				if l != d[ptr].Format(time.DateOnly) {
+					break
+				}
+			}
+			ds.Values = append(ds.Values, ptr-j)
+		}
+		datasets = append(datasets, ds)
+	}
+	return tmpl.Execute(f, struct {
+		Labels   []string
+		Datasets []Dataset
+	}{Labels: labels, Datasets: datasets})
 }

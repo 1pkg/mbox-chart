@@ -7,10 +7,6 @@
   </head>
   <body height="100vh" width="100vw" style="overflow:hidden;">
     <div style="user-select:none;">
-      <span id="zoom-in" class="fa-solid fa-plus"></span>
-      |
-      <span id="zoom-out" class="fa-solid fa-minus"></span>
-      |
       <span id="zoom-reset" class="fa-solid fa-arrows-rotate"></span>
     </div>
     <div style="position:relative; height:80vh; width:80vw;">
@@ -20,13 +16,15 @@
       let chart = new Chart(document.getElementById('chart').getContext('2d'), {
           type: 'line',
           data: {
-            labels: ["January", "February", "March", "April", "May", "June", "July"],
+            labels: [{{range .Labels}} "{{.}}", {{end}}],
             datasets: [
-                {
-                    label: 'Dataset',
-                    fill: false,
-                    data: [65, 59, 80, 81, 56, 55, 40],
-                },
+              {{range .Datasets}}
+              {
+                label: "{{.Label}}",
+                fill: false,
+                data: [{{range .Values}} {{.}}, {{end}}],
+              },
+              {{end}}
             ],
         },
         options: {
@@ -50,12 +48,6 @@
           },
         },
       })
-      document.getElementById('zoom-in').onclick = () => {
-        chart.zoom({x: 1.5})
-      }
-      document.getElementById('zoom-out').onclick = () => {
-        chart.zoom({x: 0.5})
-      }
       document.getElementById('zoom-reset').onclick = () => {
         chart.resetZoom()
       }
