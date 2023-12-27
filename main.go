@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/go-echarts/go-echarts/v2/charts"
 	"github.com/go-echarts/go-echarts/v2/opts"
@@ -39,9 +40,11 @@ func main() {
 	}
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		line := renderGraph(data)
-		line.Render(w)
+		_ = line.Render(w)
 	})
-	http.ListenAndServe(":8081", nil)
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func parseMbox(r io.Reader, data map[string][]time.Time) error {
@@ -54,22 +57,17 @@ func parseMbox(r io.Reader, data map[string][]time.Time) error {
 		switch {
 		case strings.HasPrefix(l, "From:"):
 			from = strings.Replace(l, "From: ", "", 1)
-			if !strings.Contains(from, "@") {
-				for s.Scan() {
-					l := s.Text()
-					if strings.Contains(l, "@") {
-						from = l
-						break
-					}
-				}
+			for !strings.Contains(from, "@") && s.Scan() {
+				from = s.Text()
 			}
+			from = parseEmail(from)
 		case strings.HasPrefix(l, "Date:"):
-			t := parseDate(strings.Replace(l, "Date: ", "", 1))
-			if t == nil {
+			d := strings.TrimSpace(strings.Replace(l, "Date:", "", 1))
+			t, ok := parseDate(d)
+			if !ok {
 				log.Println("unrecognized format", l)
-				continue
 			}
-			date = *t
+			date = t
 		case strings.HasPrefix(l, "From"):
 			if from != "" && !date.IsZero() {
 				data[from] = append(data[from], date)
@@ -80,20 +78,50 @@ func parseMbox(r io.Reader, data map[string][]time.Time) error {
 	return s.Err()
 }
 
-func parseDate(date string) *time.Time {
+func parseEmail(s string) string {
+	runes := []rune(s)
+	var at bool
+	var lo, hi int = 0, len(runes) - 1
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		if unicode.IsSpace(r) || r == rune('<') || r == rune('>') {
+			if !at {
+				lo = i + 1
+			} else {
+				hi = i
+				break
+			}
+		}
+		at = at || (r == rune('@'))
+	}
+	return string(runes[lo:hi])
+}
+
+func parseDate(date string) (time.Time, bool) {
+	date = strings.ReplaceAll(date, ".", ",")
 	for _, format := range []string{
 		time.RFC1123Z,
 		time.RFC1123,
+		time.RFC3339,
 		"Mon, 02 Jan 2006 15:04:05 -0700 (MST)",
 		"Mon, 2 Jan 2006 15:04:05 -0700",
-		time.RFC3339,
+		"Mon, 2 Jan 2006 15:04:05 -0700 (MST)",
+		"Mon, 2 Jan 2006 15:04:05 -0700 (GMT+00:00)",
+		"Mon, Jan 2, 2006 at 3:04 PM",
+		"Mon, Jan 2, 2006 at 04:05",
+		"Mon, Jan 2, 2006, 04:05",
+		"Mon, 2 May 2006 at 04:05",
+		"Mon 2, 1, 2006 at 04:05",
+		"02 Jan 2006 15:04:05 -0700",
+		"2 Jan 2006 15:04:05 -0700",
+		"1/2/2006",
 	} {
 		t, err := time.Parse(format, date)
 		if err == nil {
-			return &t
+			return t, true
 		}
 	}
-	return nil
+	return time.Now(), false
 }
 
 type dataset struct {
@@ -104,9 +132,18 @@ type dataset struct {
 func renderGraph(data map[string][]time.Time) *charts.Bar {
 	bar := charts.NewBar()
 	bar.SetGlobalOptions(
-		charts.WithInitializationOpts(opts.Initialization{Theme: types.ThemeWesteros}),
-		charts.WithDataZoomOpts(opts.DataZoom{}),
+		charts.WithInitializationOpts(opts.Initialization{Theme: types.ThemeWonderland}),
+		charts.WithDataZoomOpts(opts.DataZoom{Type: "slider"}),
 		charts.WithLegendOpts(opts.Legend{Show: true, Type: "scroll", Orient: "horizontal"}),
+		charts.WithXAxisOpts(opts.XAxis{
+			AxisLabel: &opts.AxisLabel{
+				Show:       true,
+				Rotate:     90,
+				FontSize:   "12",
+				FontWeight: "bold",
+				Inside:     true,
+			},
+		}),
 	)
 	var labels []string
 	for k := range data {
@@ -114,7 +151,7 @@ func renderGraph(data map[string][]time.Time) *charts.Bar {
 		labels = append(labels, label)
 	}
 	var datasets []dataset
-	for i := 2016; i < 2024; i++ {
+	for i, to := 2016, time.Now().Year(); i < to; i++ {
 		ds := dataset{year: fmt.Sprint(i)}
 		for _, times := range data {
 			if len(times) == 0 {
@@ -133,9 +170,10 @@ func renderGraph(data map[string][]time.Time) *charts.Bar {
 	bar.SetXAxis(labels)
 	for _, ds := range datasets {
 		bar.AddSeries(ds.year, ds.values).
-			SetSeriesOptions(charts.WithBarChartOpts(opts.BarChart{
-				Stack: "stack",
-			}))
+			SetSeriesOptions(
+				charts.WithBarChartOpts(opts.BarChart{Stack: "stack"}),
+				charts.WithItemStyleOpts(opts.ItemStyle{Opacity: 0.75}),
+			)
 	}
 	return bar
 }
