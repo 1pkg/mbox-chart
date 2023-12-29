@@ -1,4 +1,4 @@
-module github.com/1pkg/mbox-plot
+module github.com/1pkg/mbox-chart
 
 go 1.21.5
 

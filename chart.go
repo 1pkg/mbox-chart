@@ -11,11 +11,11 @@ import (
 	"github.com/go-echarts/go-echarts/v2/types"
 )
 
-type plot struct {
+type chart struct {
 	data map[string][]time.Time
 }
 
-func (p plot) Render(w io.Writer) error {
+func (p chart) Render(w io.Writer) error {
 	bar := charts.NewBar()
 	bar.SetGlobalOptions(
 		charts.WithInitializationOpts(opts.Initialization{
@@ -52,7 +52,7 @@ func (p plot) Render(w io.Writer) error {
 	return bar.Render(w)
 }
 
-func (p plot) minYear() int {
+func (p chart) minYear() int {
 	var min time.Time
 	for _, times := range p.data {
 		for _, t := range times {
@@ -64,7 +64,7 @@ func (p plot) minYear() int {
 	return min.Year()
 }
 
-func (p plot) dataset() (labels []string, data map[int][]opts.BarData) {
+func (p chart) dataset() (labels []string, data map[int][]opts.BarData) {
 	for l := range p.data {
 		labels = append(labels, l)
 	}

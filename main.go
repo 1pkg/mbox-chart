@@ -24,7 +24,7 @@ func main() {
 		log.Fatal("no data in mbox")
 	}
 	http.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
-		p := plot(p)
+		p := chart(p)
 		_ = p.Render(w)
 	})
 	log.Println("http://localhost:8080")
